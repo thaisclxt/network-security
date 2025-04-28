@@ -1,18 +1,23 @@
-import java.net.*;
-import java.io.*;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
 
 class Server {
     public static void main(String args[]) {
-        try (ServerSocket socket = new ServerSocket(4321)) {
+        try (ServerSocket serverSocket = new ServerSocket(4321)) {
+            System.out.println("Server started on port 4321.");
+            System.out.println("Waiting for clients to connect...");
+
             while (true) {
                 try {
-                    Socket s = socket.accept();
-                    var serviceThread = new ServerThread(s);
+                    Socket clientSocket = serverSocket.accept();
+                    System.out.println("New client connected.");
 
-                    serviceThread.start();
+                    ServerThread serverThread = new ServerThread(clientSocket);
+                    serverThread.start();
 
                 } catch (IOException e) {
-                    System.out.println(e);
+                    e.printStackTrace();
                 }
             }
         } catch (IOException e) {

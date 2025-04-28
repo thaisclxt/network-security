@@ -1,75 +1,116 @@
-import java.net.*;
-import java.io.*;
-import java.util.ArrayList;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.net.Socket;
+import java.io.EOFException;
 
 public class ServerThread extends Thread {
-    Socket socket;
-    Double result;
-    DataOutputStream socketOutput;
-    DataInputStream socketInput;
-    ArrayList<Double> numbers = new ArrayList<>();
+    private Socket clientSocket;
+    private ObjectInputStream inputStream;
+    private ObjectOutputStream outputStream;
+    private boolean isAttached;
 
-    public ServerThread(Socket s) {
-        super();
-        this.socket = s;
+    public ServerThread(Socket socket) {
+        this.clientSocket = socket;
+        this.isAttached = false;
     }
 
-    @Override
     public void run() {
         try {
-            socketOutput = new DataOutputStream(socket.getOutputStream());
-            socketInput = new DataInputStream(socket.getInputStream());
+            outputStream = new ObjectOutputStream(clientSocket.getOutputStream());
+            inputStream = new ObjectInputStream(clientSocket.getInputStream());
 
+            // Attach phase
+            ProtocolMessage request = (ProtocolMessage) inputStream.readObject();
+
+            if (request.getType().equals("ATTACH_REQUEST")) {
+                System.out.println("Received Attach Request: " + request.getPayload());
+                isAttached = true;
+                ProtocolMessage response = new ProtocolMessage("ATTACH_ACCEPT", "Session established.");
+                outputStream.writeObject(response);
+                outputStream.flush();
+            } else {
+                System.out.println("Client failed to attach. Closing connection.");
+                clientSocket.close();
+                return;
+            }
+
+            // Math operations loop
             while (true) {
-                var operation = socketInput.readInt();
+                int operation = inputStream.readInt();
+                System.out.println("Operation selected: " + operation);
 
-                if (operation == -1) {
-                    socketOutput.writeUTF("Server: Connection closed");
-                    socket.close();
+                // Exit signal
+                if (operation == 0) {
+                    System.out.println("Client requested to disconnect.");
                     break;
                 }
 
-                if (operation == 4 || operation == 5 || operation == 6) {
-                    var num = socketInput.readDouble();
-                    numbers.add(num);
-                } else {
-                    for (var index = 0; index < 2; index++) {
-                        var num = socketInput.readDouble();
-                        numbers.add(num);
+                Calculator calculator = new Calculator();
+
+                if (operation == 1 || operation == 2 || operation == 3 || operation == 4) {
+                    int count = inputStream.readInt();
+                    System.out.println("Expecting " + count + " numbers.");
+
+                    for (int i = 0; i < count; i++) {
+                        double number = inputStream.readDouble();
+                        calculator.addNumber(number);
+                        System.out.println("Received number: " + number);
                     }
+                } else if (operation == 5 || operation == 6 || operation == 7) {
+                    double number = inputStream.readDouble();
+                    calculator.addNumber(number);
+                    System.out.println("Received number: " + number);
                 }
 
-                var calc = new Calculator(numbers);
+                double result = 0;
 
                 switch (operation) {
-                    case 0:
-                        result = calc.sum();
-                        break;
                     case 1:
-                        result = calc.subtraction();
+                        result = calculator.add();
                         break;
                     case 2:
-                        result = calc.multiplication();
+                        result = calculator.subtract();
                         break;
                     case 3:
-                        result = calc.division();
+                        result = calculator.multiply();
                         break;
                     case 4:
-                        result = calc.squareRoot();
+                        result = calculator.divide();
                         break;
                     case 5:
-                        result = calc.sine();
+                        result = calculator.sqrt();
+                        break;
+                    case 6:
+                        result = calculator.sin();
+                        break;
+                    case 7:
+                        result = calculator.cos();
                         break;
                     default:
-                        result = calc.cosine();
+                        System.out.println("Invalid operation.");
                         break;
                 }
 
-                socketOutput.writeUTF("The result is: " + result);
-                numbers.clear();
+                System.out.println("Calculated result: " + result);
+                System.out.println("Sending result to client...");
+
+                outputStream.writeDouble(result);
+                outputStream.flush();
             }
-        } catch (IOException e) {
-            System.out.println(e);
+
+        } catch (EOFException e) {
+            System.out.println("Client disconnected unexpectedly.");
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                inputStream.close();
+                outputStream.close();
+                clientSocket.close();
+                System.out.println("Closed client connection.");
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
     }
 }
